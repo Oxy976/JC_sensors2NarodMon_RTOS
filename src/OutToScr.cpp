@@ -1,219 +1,141 @@
 #include "OutToScr.h"
-#include <JC3248W535.h>
+#include <lvgl.h>
 
-extern JC3248W535_Display *display;
+static lv_obj_t *lbl_ext_temp = nullptr;
+static lv_obj_t *lbl_ext_humi = nullptr;
+static lv_obj_t *lbl_press    = nullptr;
+static lv_obj_t *lbl_int_temp = nullptr;
+static lv_obj_t *lbl_int_humi = nullptr;
+static lv_obj_t *lbl_rad      = nullptr;
 
-// Опеределение цветов RGB565 для нового экрана
-#define SCR_BLACK   0x0000
-#define SCR_WHITE   0xFFFF
-#define SCR_RED     0xF800
-#define SCR_GREEN   0x07E0
-#define SCR_BLUE    0x001F
-#define SCR_CYAN    0x07FF
-#define SCR_YELLOW  0xFFE0
-#define SCR_MAGENTA 0xF81F
-#define SCR_GRAY    0x7BEF
+void ScreenOn() {}
+void ScreenOff() {}
+void processLcdAnimate() {}
+bool isScreenFullyActive() { return true; }
 
-#define LCD_HOLD_TIME 8000 // Держать экран включенным 8 секунд после активности
-#define FADE_SPEED_MS 15
+void init_lvgl_ui() {
+    static lv_style_t style_box;
+    lv_style_init(&style_box);
+    lv_style_set_bg_color(&style_box, lv_color_make(20, 20, 20)); 
+    lv_style_set_border_color(&style_box, lv_color_make(100, 100, 100)); 
+    lv_style_set_border_width(&style_box, 2);
+    lv_style_set_radius(&style_box, 8);
 
-static unsigned long lcdTimer = 0;        
-static unsigned long fadeTimer = 0;       
-static int currentBrightness = 100;       
-static int targetBrightness = 100;        
-static bool isScreenActive = true;        
+    // 1. Уличная температура
+    lv_obj_t *box_ext_temp = lv_obj_create(lv_scr_act());
+    lv_obj_set_size(box_ext_temp, 275, 185);
+    lv_obj_align(box_ext_temp, LV_ALIGN_TOP_LEFT, 5, 5);
+    lv_obj_add_style(box_ext_temp, &style_box, 0);
 
-// Таблица компактных двухбуквенных дней недели на русском языке для шрифта дисплея
-struct RuDay { const char* name; };
-static const RuDay ruDays[] = {
-    {"BC"}, {"ПH"}, {"BT"}, {"CP"}, {"4T"}, {"ПT"}, {"CБ"}
-};
+    lbl_ext_temp = lv_label_create(box_ext_temp);
+    lv_obj_align(lbl_ext_temp, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_text_color(lbl_ext_temp, lv_color_make(255, 0, 0), 0); 
+    lv_obj_set_style_text_font(lbl_ext_temp, &lv_font_montserrat_24, 0); 
+    lv_label_set_text(lbl_ext_temp, "--.- C");
 
-void ScreenOn() {
-    currentBrightness = 100;
-    targetBrightness = 100;
-    pinMode(1, OUTPUT);
-    digitalWrite(1, HIGH); // Аппаратно зажигаем транзисторный ключ подсветки GPIO 1
-    isScreenActive = true;
-    lcdTimer = millis(); 
+    // 2. Уличная влажность
+    lv_obj_t *box_ext_humi = lv_obj_create(lv_scr_act());
+    lv_obj_set_size(box_ext_humi, 190, 90);
+    lv_obj_align(box_ext_humi, LV_ALIGN_TOP_RIGHT, -5, 5);
+    lv_obj_add_style(box_ext_humi, &style_box, 0);
+
+    lbl_ext_humi = lv_label_create(box_ext_humi);
+    lv_obj_align(lbl_ext_humi, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_text_color(lbl_ext_humi, lv_color_make(255, 0, 255), 0); 
+    lv_label_set_text(lbl_ext_humi, "H_ext: -- %");
+
+    // 3. Атмосферное давление
+    lv_obj_t *box_press = lv_obj_create(lv_scr_act());
+    lv_obj_set_size(box_press, 190, 90);
+    lv_obj_align(box_press, LV_ALIGN_TOP_RIGHT, -5, 100);
+    lv_obj_add_style(box_press, &style_box, 0);
+
+    lbl_press = lv_label_create(box_press);
+    lv_obj_align(lbl_press, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_text_color(lbl_press, lv_color_make(255, 0, 255), 0); 
+    lv_label_set_text(lbl_press, "Bar: --- mmHg");
+
+    // Нижний ряд блоков
+    int box_w = 153, box_h = 115;
+
+    lv_obj_t *box_int_temp = lv_obj_create(lv_scr_act());
+    lv_obj_set_size(box_int_temp, box_w, box_h);
+    lv_obj_align(box_int_temp, LV_ALIGN_BOTTOM_LEFT, 5, -5);
+    lv_obj_add_style(box_int_temp, &style_box, 0);
+
+    lbl_int_temp = lv_label_create(box_int_temp);
+    lv_obj_align(lbl_int_temp, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_text_color(lbl_int_temp, lv_color_make(255, 255, 0), 0); 
+    lv_label_set_text(lbl_int_temp, "T_int: --.- C");
+
+    lv_obj_t *box_int_humi = lv_obj_create(lv_scr_act());
+    lv_obj_set_size(box_int_humi, box_w, box_h);
+    lv_obj_align(box_int_humi, LV_ALIGN_BOTTOM_MID, 0, -5);
+    lv_obj_add_style(box_int_humi, &style_box, 0);
+
+    lbl_int_humi = lv_label_create(box_int_humi);
+    lv_obj_align(lbl_int_humi, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_text_color(lbl_int_humi, lv_color_make(255, 255, 0), 0); 
+    lv_label_set_text(lbl_int_humi, "H_int: -- %");
+
+    lv_obj_t *box_rad = lv_obj_create(lv_scr_act());
+    lv_obj_set_size(box_rad, box_w, box_h);
+    lv_obj_align(box_rad, LV_ALIGN_BOTTOM_RIGHT, -5, -5);
+    lv_obj_add_style(box_rad, &style_box, 0);
+
+    lbl_rad = lv_label_create(box_rad);
+    lv_obj_align(lbl_rad, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_text_color(lbl_rad, lv_color_make(0, 255, 255), 0); 
+    lv_label_set_text(lbl_rad, "Rad: -.-- uS");
 }
 
-void ScreenOff() {
-    targetBrightness = 0;
-    isScreenActive = false;
-    fadeTimer = millis();
-}
-
-bool isScreenFullyActive() {
-    return isScreenActive && (currentBrightness > 10);
-}
-
-// Плавное неблокирующее управление подсветкой (вызывается в главном loop)
-void processLcdAnimate() {
-    if (isScreenActive && (millis() - lcdTimer >= LCD_HOLD_TIME)) {
-        ScreenOff();
-    }
-
-    if (currentBrightness != targetBrightness) {
-        if (millis() - fadeTimer >= FADE_SPEED_MS) {
-            fadeTimer = millis();
-            if (currentBrightness > targetBrightness) {
-                currentBrightness -= 5;
-                if (currentBrightness < 0) currentBrightness = 0;
-            } else {
-                currentBrightness += 5;
-                if (currentBrightness > 100) currentBrightness = 100;
-            }
-
-            // Управляем подсветкой: если 0 — гасим ключ полностью
-            if (currentBrightness == 0) {
-                digitalWrite(1, LOW); 
-            } else {
-                digitalWrite(1, HIGH);
-            }
-        }
-    }
-}
-
-// Форматирование температуры по вашему алгоритму
-String TempToStr(float t) {
-    if (isnan(t) || t == 888.8f || t == 888.0f) return "--.- C";
-    long T = round(t * 10);
-    int t1 = abs(T / 10);
-    int t2 = abs(T % 10);
-    return (t < 0 ? "-" : "") + String(t1) + "." + String(t2) + " *C";
-}
-
-String PressToStr(float p) {
-    if (isnan(p) || p == 0.0f) return "--- мм";
-    return String(abs((int)p)) + " мм";
-}
-
-String HumToStr(float h) {
-    if (isnan(h) || h == 0.0f) return "--.- %";
-    long H = round(h * 10);
-    int h1 = H / 10;
-    int h2 = abs(H % 10);
-    return String(h1) + "." + String(h2) + " %";
-}
-
-String RgToStr(float r) {
-    if (isnan(r) || r == 0.0f) return "-.- uS";
-    long R = round(r * 10);
-    int r1 = R / 10;
-    int r2 = abs(R % 10);
-    return String(r1) + "." + String(r2) + " uS";
-}
-
-// Геометрическая сетка вывода метеоданных (480x320 ландшафт)
-void OutStrToScr(String mainTemp, String extHumi, String press, String intTemp, String intHumi, String rad) {
-    auto gfx = display->getCanvas();
-    if (!gfx) return;
-
-    gfx->fillScreen(SCR_BLACK);
-
-    // Рисуем стильные прямоугольные блоки под обновленное разрешение
-    gfx->drawRoundRect(2, 2, 280, 190, 6, SCR_GRAY);       // Главная уличная температура
-    gfx->drawRoundRect(285, 2, 192, 93, 6, SCR_GRAY);     // Уличная влажность
-    gfx->drawRoundRect(285, 98, 192, 94, 6, SCR_GRAY);    // Атмосферное давление
-    
-    gfx->drawRoundRect(2, 196, 156, 122, 6, SCR_GRAY);    // Комнатная температура
-    gfx->drawRoundRect(162, 196, 156, 122, 6, SCR_GRAY);  // Комнатная влажность
-    gfx->drawRoundRect(322, 196, 156, 122, 6, SCR_GRAY);  // Радиационный фон
-
-    // Вывод текста методом выравнивания координат по сетке дисплея
-    gfx->setTextColor(SCR_RED);
-    gfx->setTextSize(4);
-    gfx->setCursor(20, 75);
-    gfx->print(mainTemp);
-
-    gfx->setTextColor(SCR_MAGENTA);
-    gfx->setTextSize(2);
-    gfx->setCursor(300, 40);
-    gfx->print("H_ext: " + extHumi);
-
-    gfx->setCursor(300, 135);
-    gfx->print("P: " + press);
-
-    gfx->setTextColor(SCR_YELLOW);
-    gfx->setTextSize(2);
-    gfx->setCursor(12, 245);
-    gfx->print("T_in:" + intTemp);
-
-    gfx->setCursor(172, 245);
-    gfx->print("H_in:" + intHumi);
-
-    gfx->setTextColor(0x07FF); // CYAN
-    gfx->setCursor(332, 245);
-    gfx->print("R: " + rad);
-
-    display->flush(); // Переносим сформированный кадр на экран
-}
-
-// Метод селекции приоритетных датчиков по вашей исходной логике
 void OutToScr(stSens *vSensVal) {
-    ScreenOn();
-
-    float b1 = 888.8, sr1 = 0.0, sr2 = 0.0, sd1 = 888.0, sd2 = 0.0, sd3 = 0.0;
-
-    // Уличная температура (выбор живого датчика)
-    if (vSensVal[0].actual)       b1 = vSensVal[0].value;
-    else if (vSensVal[9].actual)  b1 = vSensVal[9].value;
-    else if (vSensVal[7].actual)  b1 = vSensVal[7].value;
-    else if (vSensVal[4].actual)  b1 = vSensVal[4].value;
-
-    // Уличная влажность
-    if (vSensVal[10].actual)      sr1 = vSensVal[10].value;
-    else if (vSensVal[8].actual)  sr1 = vSensVal[8].value;
-    else if (vSensVal[5].actual)  sr1 = vSensVal[5].value;
-
-    // Атмосферное давление
-    if (vSensVal[13].actual)      sr2 = vSensVal[13].value;
-    else if (vSensVal[6].actual)  sr2 = vSensVal[6].value;
-
-    // Внутренние параметры и радиация
-    if (vSensVal[11].actual)      sd1 = vSensVal[11].value;
-    if (vSensVal[12].actual)      sd2 = vSensVal[12].value;
-    if (vSensVal[2].actual)       sd3 = vSensVal[2].value;
-
-    OutStrToScr(TempToStr(b1), HumToStr(sr1), PressToStr(sr2), TempToStr(sd1), HumToStr(sd2), RgToStr(sd3));
-}
-
-// Экран отображения текущих часов и календаря (с оптимизированными днями недели)
-void ShowTime() {
-    ScreenOn();
-    struct tm timeinfo;
-    if (!getLocalTime(&timeinfo)) return;
-
-    auto gfx = display->getCanvas();
-    if (!gfx) return;
-
-    char ctme[16], cdte[24];
-    sprintf(ctme, "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
-    sprintf(cdte, "%02d-%02d-%4d", timeinfo.tm_mday, (timeinfo.tm_mon + 1), (timeinfo.tm_year + 1900));
-
-    gfx->fillScreen(SCR_BLACK);
-    
-    // Отрисовка цифровых часов крупно по центру ландшафтного экрана
-    gfx->setTextSize(6);
-    gfx->setTextColor(SCR_RED);
-    gfx->setCursor(110, 110);
-    gfx->print(ctme);
-
-    // Отрисовка календарной даты
-    gfx->setTextSize(3);
-    gfx->setTextColor(SCR_GREEN);
-    gfx->setCursor(120, 200);
-    gfx->print(cdte);
-
-    // Быстрый табличный вывод дня недели без громоздкого switch-case
-    int wday = timeinfo.tm_wday;
-    if (wday >= 0 && wday <= 6) {
-        gfx->setTextSize(3);
-        gfx->setTextColor(SCR_CYAN);
-        gfx->setCursor(220, 260);
-        gfx->print(ruDays[wday].name);
+    if (lbl_ext_temp == nullptr) {
+        init_lvgl_ui(); 
     }
 
-    display->flush();
+    // ВЫВОДИМ ДАННЫЕ НАПРЯМУЮ, ЕСЛИ ЗНАЧЕНИЕ НЕ NULL И НЕ НАУШНИКИ/ЗАГЛУШКИ
+    // 1. Уличная температура (Индекс 4)
+    if (!isnan(vSensVal[4].value) && vSensVal[4].value != 0.0) {
+        lv_label_set_text_fmt(lbl_ext_temp, "%.1f C", vSensVal[4].value);
+    } else {
+        lv_label_set_text(lbl_ext_temp, "--.- C");
+    }
+
+    // 2. Уличная влажность (Индекс 5)
+    if (!isnan(vSensVal[5].value) && vSensVal[5].value != 0.0) {
+        lv_label_set_text_fmt(lbl_ext_humi, "H_ext: %.1f %%", vSensVal[5].value);
+    } else {
+        lv_label_set_text(lbl_ext_humi, "H_ext: -- %%");
+    }
+
+    // 3. Атмосферное давление (Индекс 6)
+    if (!isnan(vSensVal[6].value) && vSensVal[6].value != 0.0) {
+        lv_label_set_text_fmt(lbl_press, "Bar: %d mmHg", (int)vSensVal[6].value);
+    } else {
+        lv_label_set_text(lbl_press, "Bar: --- mmHg");
+    }
+
+    // 4. Комнатная температура (Индекс 11)
+    if (!isnan(vSensVal[11].value) && vSensVal[11].value != 0.0) {
+        lv_label_set_text_fmt(lbl_int_temp, "T_int: %.1f C", vSensVal[11].value);
+    } else {
+        lv_label_set_text(lbl_int_temp, "T_int: --.- C");
+    }
+
+    // 5. Комнатная влажность (Индекс 12)
+    if (!isnan(vSensVal[12].value) && vSensVal[12].value != 0.0) {
+        lv_label_set_text_fmt(lbl_int_humi, "H_int: %.1f %%", vSensVal[12].value);
+    } else {
+        lv_label_set_text(lbl_int_humi, "H_int: -- %%");
+    }
+
+    // 6. Радиация (Индекс 2)
+    if (vSensVal[2].actual) {
+        lv_label_set_text_fmt(lbl_rad, "Rad: %.2f uS", vSensVal[2].value);
+    } else {
+        lv_label_set_text(lbl_rad, "Rad: -.-- uS");
+    }
 }
+
+void ShowTime() {}

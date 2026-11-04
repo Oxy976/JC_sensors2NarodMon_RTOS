@@ -1,25 +1,21 @@
-#pragma once
-#ifndef sensors_h
-#define sensors_h
+#ifndef SENSORS_H
+#define SENSORS_H
+
 #include <Arduino.h>
-#include <Wire.h>
+#include <SparkFunBME280.h>
+#include "strct.h" // Подключаем оригинальные структуры проекта
 
-extern TwoWire WireSensors; // Метео-шина на IO17/18
+// Мьютекс для изоляции I2C шины (физическое переключение пинов)
+extern SemaphoreHandle_t xLcdMutex;
 
-#include "strct.h"
-#include <Adafruit_BME280.h> // <- Новый драйвер от Adafruit
-#include "radSens1v2.h"
-#include <SHT2x.h>                          
-#include "SHT31.h"                          
-#include "SparkFun_SCD30_Arduino_Library.h" 
-#include <OneWire.h>           
-#include "DallasTemperature.h" 
+// Мьютекс для защиты данных датчиков и ОТА (требуется для wifi_server.cpp)
+extern SemaphoreHandle_t xSensorsMutex;
 
-extern void scanI2CBus();
-extern void startSens(stSens *vSensVal);
-extern void getSensData(stSens *vSensVal); 
-extern void resetActualSensVal(stSens *vSensVal);
-extern void SCD30Calibration();
-void triggerHeatCycle();
-void processAsyncHeating();
+void startSens(stSens *vSensVal);
+void getSensData(stSens *vSensVal);
+void resetActualSensVal(stSens *vSensVal);
+void switchToMeteoBus();
+void switchToTouchBus();
+void SCD30Calibration(); // Объявление для веб-сервера
+
 #endif

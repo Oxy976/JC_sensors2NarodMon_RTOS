@@ -1,14 +1,15 @@
-#ifndef OutToScr_h
-#define OutToScr_h
+#ifndef OUT_TO_SCR_H
+#define OUT_TO_SCR_H
 
-#include <Arduino.h>
-#include "strct.h"
+#include "sensors.h"
 
+void init_lvgl_ui();
 void OutToScr(stSens *vSensVal);
-void ShowTime();
-void processLcdAnimate();
 void ScreenOn();
 void ScreenOff();
+void processLcdAnimate();
 bool isScreenFullyActive();
+void ShowTime();
+void reset_screen_timeout();
 
 #endif

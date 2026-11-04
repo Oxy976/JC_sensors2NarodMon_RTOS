@@ -1,0 +1,25 @@
+
+   
+// Конфигурация дисплея платы JC3248W535
+#define TFT_BL 1
+#define TFT_CS 45
+#define TFT_SCK 47
+#define TFT_D0 21
+#define TFT_D1 48
+#define TFT_D2 40
+#define TFT_D3 39
+
+#define SCREEN_WIDTH 480
+#define SCREEN_HEIGHT 320
+
+//Touch Controller    частотв I2C -  40000
+#define TOUCH_SDA 4
+#define TOUCH_SCL 8
+#define TOUCH_INT 3
+#define TOUCH_RST 12
+#define TOUCH_ADDR 0x3B
+
+//разъемы P3 P4 I2C#2
+#define PIN_SENS_SDA 17
+#define PIN_SENS_SCL 18
+// !! нужны дополнительные резисторы подтяжки на линии данных -  4.7K к питанию 3v3 !!!

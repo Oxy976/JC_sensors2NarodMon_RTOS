@@ -25,15 +25,18 @@
 // Глобальный массив структур для хранения показаний метеостанции
 stSens vSensVal[SensUnit];
 
+volatile bool bSensorsInitDone = false; // Флаг завершения инициализации датчиков
+
 // плвное затухание
 #define LCD_TIMEOUT_MS 30000 // 30 секунд
 static uint32_t last_touch_time = 0;
 static uint8_t lcd_brightness = 255;
 static bool is_dimming = false;
 
-void init_backlight_pwm() {
-    ledcAttach(TFT_BL, 5000, 8); 
-    ledcWrite(TFT_BL, 255); 
+void init_backlight_pwm()
+{
+    ledcAttach(TFT_BL, 5000, 8);
+    ledcWrite(TFT_BL, 255);
     last_touch_time = millis();
 }
 
@@ -117,42 +120,57 @@ void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color
     lv_disp_flush_ready(disp);
 }
 
-void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
+void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data)
+{
+
+    // Если инициализация датчиков не завершена — полностью игнорируем опрос тача
+    if (!bSensorsInitDone)
+    {
+        data->state = LV_INDEV_STATE_REL;
+        return;
+    }
+
     uint8_t read_cmd[] = {0xB5, 0xAB, 0xA5, 0x5A, 0x00, 0x00, 0x00, 0x08};
     uint8_t res[8] = {0};
 
     sw_i2c_start();
-    if (!sw_i2c_write(TOUCH_ADDR << 1)) {
+    if (!sw_i2c_write(TOUCH_ADDR << 1))
+    {
         sw_i2c_stop();
         data->state = LV_INDEV_STATE_REL;
         return;
     }
-    for (uint8_t i = 0; i < 8; i++) sw_i2c_write(read_cmd[i]);
+    for (uint8_t i = 0; i < 8; i++)
+        sw_i2c_write(read_cmd[i]);
     sw_i2c_stop();
     sw_i2c_delay();
 
     sw_i2c_start();
-    if (!sw_i2c_write((TOUCH_ADDR << 1) | 1)) {
+    if (!sw_i2c_write((TOUCH_ADDR << 1) | 1))
+    {
         sw_i2c_stop();
         data->state = LV_INDEV_STATE_REL;
         return;
     }
-    for (uint8_t i = 0; i < 7; i++) res[i] = sw_i2c_read(true);
+    for (uint8_t i = 0; i < 7; i++)
+        res[i] = sw_i2c_read(true);
     res[7] = sw_i2c_read(false);
     sw_i2c_stop();
 
     int16_t raw_x = ((res[2] & 0x0F) << 8) | res[3];
     int16_t raw_y = ((res[4] & 0x0F) << 8) | res[5];
-    uint8_t status = res[1]; 
+    uint8_t status = res[1];
 
-    if (status != 0 && raw_x < 320 && raw_y < 480) {
+    if (status != 0 && raw_x < 320 && raw_y < 480)
+    {
         data->point.x = raw_x;
         data->point.y = raw_y;
         data->state = LV_INDEV_STATE_PR;
-        
+
         // СБРОС ТАЙМЕРА И МГНОВЕННОЕ ВКЛЮЧЕНИЕ ПРИ КАСАНИИ
         last_touch_time = millis();
-        if (lcd_brightness < 255) {
+        if (lcd_brightness < 255)
+        {
             lcd_brightness = 255;
             ledcWrite(TFT_BL, lcd_brightness);
             is_dimming = false;
@@ -160,6 +178,10 @@ void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
         }
 
         ESP_LOGI("TOUCH", "Касание: X=%d, Y=%d (Status: 0x%02X)", raw_x, raw_y, status);
+
+        // ВЫЗОВ  ОТЛАДОЧНОГО ЛОГА ДАННЫХ
+        logAllSensorsDebug(vSensVal);
+
         return;
     }
     data->state = LV_INDEV_STATE_REL;
@@ -169,7 +191,7 @@ void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
 void TaskSensors(void *pvParameters)
 {
     ESP_LOGI("RTOS", "Задача опроса датчиков запущена на Core %d", xPortGetCoreID());
-    startSens(vSensVal);
+    // startSens(vSensVal);
 
     for (;;)
     {
@@ -179,33 +201,37 @@ void TaskSensors(void *pvParameters)
     }
 }
 
-void setup() {
+void setup()
+{
     Serial.begin(115200);
     delay(500);
-    
-    xLcdMutex = xSemaphoreCreateMutex();
 
-    // Запуск новой ШИМ подсветки
+    // Инициализируем мьютекс ДО старта датчиков
+    xLcdMutex = xSemaphoreCreateMutex();
+    // === САМЫЙ ПЕРВЫЙ СТАРТ ШИНЫ WIRE ===
+    Wire.begin(17, 18, 100000U);
+
     init_backlight_pwm();
 
-    pinMode(TOUCH_SCL, OUTPUT); 
+    // Инициализация пинов тачскрина
+    pinMode(TOUCH_SCL, OUTPUT);
     pinMode(TOUCH_SDA, OUTPUT);
     pinMode(TOUCH_INT, INPUT_PULLUP);
     pinMode(TOUCH_RST, OUTPUT);
-    
-    digitalWrite(TOUCH_RST, LOW);  delay(30);
-    digitalWrite(TOUCH_RST, HIGH); delay(150);
+    digitalWrite(TOUCH_RST, LOW);
+    delay(10);
+    digitalWrite(TOUCH_RST, HIGH);
+    delay(50);
 
     gfx->begin();
-    gfx->fillScreen(0x0000); 
-
+    gfx->fillScreen(0x0000);
     lv_init();
 
+    // Настройка буферов дисплея LVGL...
     uint32_t buf_size = SCREEN_WIDTH * 32 * sizeof(lv_color_t);
     disp_draw_buf = (lv_color_t *)heap_caps_malloc(buf_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    if (!disp_draw_buf) {
+    if (!disp_draw_buf)
         disp_draw_buf = (lv_color_t *)ps_malloc(buf_size);
-    }
     lv_disp_draw_buf_init(&draw_buf, disp_draw_buf, NULL, SCREEN_WIDTH * 32);
 
     lv_disp_drv_init(&disp_drv);
@@ -213,9 +239,8 @@ void setup() {
     disp_drv.ver_res = 480;
     disp_drv.flush_cb = my_disp_flush;
     disp_drv.draw_buf = &draw_buf;
-    
     disp_drv.sw_rotate = 1;
-    disp_drv.rotated = LV_DISP_ROT_90; 
+    disp_drv.rotated = LV_DISP_ROT_90;
     lv_disp_drv_register(&disp_drv);
 
     static lv_indev_drv_t indev_drv;
@@ -226,24 +251,33 @@ void setup() {
 
     init_lvgl_ui();
 
+    // СНАЧАЛА ИНИЦИАЛИЗИРУЕМ ДАТЧИКИ, ЗАТЕМ СТАВИМ ТАЧ ===
+    bSensorsInitDone = false;
+    startSens(vSensVal);
+    bSensorsInitDone = true;
+
+    // Запуск циклической задачи опроса датчиков (внутри неё startSens убираем!)
     xTaskCreatePinnedToCore(TaskSensors, "TaskSensors", 4096, NULL, 2, NULL, 1);
 
     ESP_LOGI("SYSTEM", "Инициализация метеостанции успешно завершена.");
 }
 
-void loop() {
-    lv_timer_handler();  
-    gfx->flush(); 
-    
+void loop()
+{
+    lv_timer_handler();
+    gfx->flush();
+
     // Неблокирующий автомат плавного затухания экрана
     uint32_t current_time = millis();
-    if (current_time - last_touch_time > LCD_TIMEOUT_MS) {
-        if (lcd_brightness > 0) {
+    if (current_time - last_touch_time > LCD_TIMEOUT_MS)
+    {
+        if (lcd_brightness > 0)
+        {
             is_dimming = true;
             lcd_brightness = (lcd_brightness > 5) ? (lcd_brightness - 5) : 0;
             ledcWrite(TFT_BL, lcd_brightness);
         }
     }
-    
-    delay(5);           
+
+    delay(5);
 }
